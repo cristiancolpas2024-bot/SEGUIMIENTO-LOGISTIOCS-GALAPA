@@ -1,0 +1,91 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flota Gerencia Barranquilla - Gestión Vehicular</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F0F4FF;
+            margin: 0;
+            padding: 0;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        /* Animación de vibración de motor para el montacargas */
+        @keyframes forkliftVibrate {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            25% { transform: translateY(-1px) rotate(0.5deg); }
+            75% { transform: translateY(1px) rotate(-0.5deg); }
+        }
+        /* Animación de las horquillas subiendo y bajando */
+        @keyframes forkliftLift {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+        }
+        
+        .animate-spin-slow {
+            animation: spin 3s linear infinite;
+        }
+        .animate-forklift-vibrate {
+            animation: forkliftVibrate 0.15s linear infinite;
+        }
+        .animate-forklift-lift {
+            animation: forkliftLift 2s ease-in-out infinite;
+        }
+        .animate-shake {
+            animation: shake 0.2s ease-in-out 0s 2;
+        }
+
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.05);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(79, 70, 229, 0.2);
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(79, 70, 229, 0.4);
+        }
+    </style>
+    <script>
+        // Prevenir errores de 'process is not defined' en el navegador
+        window.process = { env: { API_KEY: "" } };
+    </script>
+<script type="importmap">
+{
+  "imports": {
+    "recharts": "https://esm.sh/recharts@^3.6.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.36.0",
+    "papaparse": "https://esm.sh/papaparse@^5.4.1"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="root"></div>
+    <!-- Punto de entrada de la aplicación -->
+    <script type="module" src="./index.tsx"></script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

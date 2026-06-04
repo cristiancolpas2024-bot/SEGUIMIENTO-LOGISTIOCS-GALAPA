@@ -1,0 +1,11 @@
+{
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "name": "SEGUIMIENTO GALAPA",
+  "description": "",
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
