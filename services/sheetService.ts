@@ -2,11 +2,11 @@ import Papa from 'papaparse';
 import { Vehicle, Driver, Report, MileageLog, Calibration, WashReport, Fine, Preventive, AvailabilityRecord, AvailabilitySummary, FleetComposition, OperationalIndicator, WorkshopRecord, CheckList, FuelPerformance, PlateAdherence, Corrective, UnavailabilityRecord, OperatorRecord, ControlTowerRecord, AuditRecord, AuditMasterVehicle, FleetListRecord, FleetStandardAudit, InventoryRecord } from '../types';
 import { calculateStatus, normalizePlate, normalizeStr, getDaysDiff } from '../utils';
 
-const GOOGLE_SCRIPT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzn32fI4msv1RBLA63yYbtNtyeAAdYNuT69TK7J3vVbdHWl8gc4HVDA7CJ9PivnUa3E/exec'; 
-const GOOGLE_SCRIPT_FINES_URL = 'https://script.google.com/macros/s/AKfycbzn32fI4msv1RBLA63yYbtNtyeAAdYNuT69TK7J3vVbdHWl8gc4HVDA7CJ9PivnUa3E/exec';
-const GOOGLE_SCRIPT_WORKSHOP_URL = 'https://script.google.com/macros/s/AKfycbzn32fI4msv1RBLA63yYbtNtyeAAdYNuT69TK7J3vVbdHWl8gc4HVDA7CJ9PivnUa3E/exec';
-const GOOGLE_SCRIPT_DAILY_PROGRAM_URL = 'https://script.google.com/macros/s/AKfycbzn32fI4msv1RBLA63yYbtNtyeAAdYNuT69TK7J3vVbdHWl8gc4HVDA7CJ9PivnUa3E/exec';
-const GOOGLE_SCRIPT_AUDIT_URL = 'https://script.google.com/macros/s/AKfycbzn32fI4msv1RBLA63yYbtNtyeAAdYNuT69TK7J3vVbdHWl8gc4HVDA7CJ9PivnUa3E/exec';
+const GOOGLE_SCRIPT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycby3aD0pUq_-4Q2csMcc0YhAg9aFgCyXShHFGCBhI-nMneeEqwxkSsZvPYDSF8iiv0yw/exec'; 
+const GOOGLE_SCRIPT_FINES_URL = 'https://script.google.com/macros/s/AKfycby3aD0pUq_-4Q2csMcc0YhAg9aFgCyXShHFGCBhI-nMneeEqwxkSsZvPYDSF8iiv0yw/exec';
+const GOOGLE_SCRIPT_WORKSHOP_URL = 'https://script.google.com/macros/s/AKfycby3aD0pUq_-4Q2csMcc0YhAg9aFgCyXShHFGCBhI-nMneeEqwxkSsZvPYDSF8iiv0yw/exec';
+const GOOGLE_SCRIPT_DAILY_PROGRAM_URL = 'https://script.google.com/macros/s/AKfycby3aD0pUq_-4Q2csMcc0YhAg9aFgCyXShHFGCBhI-nMneeEqwxkSsZvPYDSF8iiv0yw/exec';
+const GOOGLE_SCRIPT_AUDIT_URL = 'https://script.google.com/macros/s/AKfycby3aD0pUq_-4Q2csMcc0YhAg9aFgCyXShHFGCBhI-nMneeEqwxkSsZvPYDSF8iiv0yw/exec';
 
 // HOJA MAESTRA (Donde se encuentran los Vehículos y Conductores)
 const REAL_MASTER_ID = '1GPfhWOUM8As4vVRirzWgSzFwvQ01I6EAc14uGoWc98U';

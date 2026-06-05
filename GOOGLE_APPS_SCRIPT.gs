@@ -594,12 +594,16 @@ function doPost(e) {
         var rows = s.getDataRange().getValues();
         var foundIdx = -1;
         var plateSearch = (d.placa || "").toString().toUpperCase().trim();
+        var dateSearchNorm = normalizeDateToCompare(d.fecha);
         
         for (var i = 1; i < rows.length; i++) {
           var rowPlate = (rows[i][1] || "").toString().toUpperCase().trim(); // Columna PLACA (B)
           if (rowPlate === plateSearch) {
-            foundIdx = i + 1;
-            break;
+            var rowDateNorm = normalizeDateToCompare(rows[i][0]); // Columna FECHA (A)
+            if (rowDateNorm && dateSearchNorm && rowDateNorm === dateSearchNorm) {
+              foundIdx = i + 1;
+              break;
+            }
           }
         }
         
@@ -636,6 +640,48 @@ function doPost(e) {
     if (lock.hasLock()) lock.releaseLock();
     return output("error", e.toString());
   }
+}
+
+function normalizeDateToCompare(val) {
+  if (!val) return "";
+  if (val instanceof Date) {
+    var yyyy = val.getFullYear();
+    var mm = ("0" + (val.getMonth() + 1)).slice(-2);
+    var dd = ("0" + val.getDate()).slice(-2);
+    return yyyy + "-" + mm + "-" + dd;
+  }
+  
+  var clean = val.toString().trim();
+  // Try dd/mm/yyyy or dd/mm/yy
+  var slashMatch = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slashMatch) {
+    var day = ("0" + slashMatch[1]).slice(-2);
+    var month = ("0" + slashMatch[2]).slice(-2);
+    var year = slashMatch[3];
+    if (year.length === 2) {
+      year = "20" + year;
+    }
+    return year + "-" + month + "-" + day;
+  }
+  
+  // Try yyyy-mm-dd
+  var dashMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (dashMatch) {
+    var year = dashMatch[1];
+    var month = ("0" + dashMatch[2]).slice(-2);
+    var day = ("0" + dashMatch[3]).slice(-2);
+    return year + "-" + month + "-" + day;
+  }
+  
+  var d = new Date(clean);
+  if (!isNaN(d.getTime())) {
+    var yyyy = d.getFullYear();
+    var mm = ("0" + (d.getMonth() + 1)).slice(-2);
+    var dd = ("0" + d.getDate()).slice(-2);
+    return yyyy + "-" + mm + "-" + dd;
+  }
+  
+  return clean;
 }
 
 function getSheetByGid(ss, gid) {
