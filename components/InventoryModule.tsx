@@ -9,6 +9,55 @@ import { motion, AnimatePresence } from 'motion/react';
 import { getDriveDirectLink, formatDate, formatDateToDDMMAA } from '../utils';
 import { submitInventoryToSheet, uploadImageToDrive } from '../services/sheetService';
 
+const parseToDateObj = (dateStr: string): Date | null => {
+  if (!dateStr) return null;
+  const clean = String(dateStr).trim();
+  
+  // Try dd/mm/yyyy or dd/mm/yy
+  const slashMatch = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slashMatch) {
+    const day = parseInt(slashMatch[1], 10);
+    const month = parseInt(slashMatch[2], 10) - 1;
+    let year = parseInt(slashMatch[3], 10);
+    if (year < 100) {
+      year += 2000;
+    } else if (year < 200) {
+      year += 1900;
+    }
+    return new Date(year, month, day);
+  }
+
+  // Try yyyy-mm-dd or yy-mm-dd
+  const dashMatch = clean.match(/^(\d{2,4})-(\d{1,2})-(\d{2,4})$/);
+  if (dashMatch) {
+    let year = parseInt(dashMatch[1], 10);
+    if (year < 100) {
+      year += 2000;
+    }
+    const month = parseInt(dashMatch[2], 10) - 1;
+    const day = parseInt(dashMatch[3], 10);
+    return new Date(year, month, day);
+  }
+
+  const d = new Date(clean);
+  if (!isNaN(d.getTime())) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  return null;
+};
+
+const formatToHTMLDateInput = (dateStr: string): string => {
+  if (!dateStr) return new Date().toISOString().split('T')[0];
+  const dObj = parseToDateObj(dateStr);
+  if (!dObj) return new Date().toISOString().split('T')[0];
+  
+  const yyyy = dObj.getFullYear();
+  const mm = String(dObj.getMonth() + 1).padStart(2, '0');
+  const dd = String(dObj.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+
 interface InventoryModuleProps {
   headers: string[];
   data: InventoryRecord[];
@@ -21,6 +70,8 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table'); // Default to table view to open directly in the table
   const [dynamicFilters, setDynamicFilters] = useState<{ [key: string]: string }>({});
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [selectedItem, setSelectedItem] = useState<InventoryRecord | null>(null);
   const [activePhoto, setActivePhoto] = useState<{ url: string; title: string } | null>(null);
@@ -287,6 +338,23 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
       });
     }
 
+    // Date range filter
+    if (startDate || endDate) {
+      const start = startDate ? parseToDateObj(startDate) : null;
+      const end = endDate ? parseToDateObj(endDate) : null;
+      const dateKey = mappedKeys.dateKey || 'FECHA';
+
+      result = result.filter(item => {
+        const itemDateVal = String(item[dateKey] || '');
+        const parsedItemDate = parseToDateObj(itemDateVal);
+        if (!parsedItemDate) return false;
+
+        if (start && parsedItemDate.getTime() < start.getTime()) return false;
+        if (end && parsedItemDate.getTime() > end.getTime()) return false;
+        return true;
+      });
+    }
+
     // Dynamic dropdown filters
     Object.entries(dynamicFilters).forEach(([header, filterValue]) => {
       if (filterValue && filterValue !== 'TODOS') {
@@ -316,11 +384,11 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
     }
 
     return result;
-  }, [allData, searchTerm, dynamicFilters, sortConfig]);
+  }, [allData, searchTerm, dynamicFilters, sortConfig, startDate, endDate, mappedKeys.dateKey]);
 
   // Statistics calculation
   const stats = useMemo(() => {
-    const totalRecords = allData.length;
+    const totalRecords = filteredData.length;
     let totalCarretillas = 0;
     let totalConos = 0;
     let totalCorreas = 0;
@@ -331,7 +399,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
     const conesKey = headers.find(h => h.toUpperCase().trim() === 'CONOS');
     const beltsKey = headers.find(h => h.toUpperCase().trim() === 'CORREAS');
 
-    allData.forEach(item => {
+    filteredData.forEach(item => {
       if (carriesKey) totalCarretillas += parseInt(String(item[carriesKey] || '0').replace(/[^0-9]/g, '')) || 0;
       if (conesKey) totalConos += parseInt(String(item[conesKey] || '0').replace(/[^0-9]/g, '')) || 0;
       if (beltsKey) {
@@ -348,7 +416,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
       totalConos: conesKey ? totalConos : null,
       totalCorreas: beltsKey ? totalCorreas : null,
     };
-  }, [allData, headers]);
+  }, [filteredData, headers]);
 
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -511,6 +579,133 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                 </div>
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* Date Filter Bar */}
+        <div className="border-t border-slate-100 pt-4 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-1.5 mr-2">
+              <Calendar size={13} className="text-indigo-500" /> Filtrar Fecha:
+            </span>
+            
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-1.5 focus-within:border-indigo-500 transition-all">
+              <span className="text-[8px] font-bold text-slate-400 uppercase">desde</span>
+              <input 
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                className="bg-transparent text-[10px] font-black text-slate-800 outline-none cursor-pointer"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-1.5 focus-within:border-indigo-500 transition-all">
+              <span className="text-[8px] font-bold text-slate-400 uppercase">hasta</span>
+              <input 
+                type="date"
+                value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+                className="bg-transparent text-[10px] font-black text-slate-800 outline-none cursor-pointer"
+              />
+            </div>
+            
+            {(startDate || endDate) && (
+              <button
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                }}
+                className="text-[8px] sm:text-[9px] font-bold text-red-500 hover:text-red-600 uppercase tracking-widest cursor-pointer ml-1"
+              >
+                Limpiar fecha
+              </button>
+            )}
+          </div>
+
+          {/* Quick Presets */}
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { id: 'today', label: 'Hoy' },
+              { id: 'yesterday', label: 'Ayer' },
+              { id: 'week', label: 'Esta Semana' },
+              { id: 'month', label: 'Este Mes' },
+              { id: 'all', label: 'Todos' }
+            ].map(preset => {
+              // Highlight selected preset if applicable
+              let isActive = false;
+              const todayStr = new Date().toISOString().split('T')[0];
+              if (preset.id === 'today') {
+                isActive = startDate === todayStr && endDate === todayStr;
+              } else if (preset.id === 'yesterday') {
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterStr = yesterday.toISOString().split('T')[0];
+                isActive = startDate === yesterStr && endDate === yesterStr;
+              } else if (preset.id === 'week') {
+                const today = new Date();
+                const currentDay = today.getDay();
+                const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+                const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + distanceToMonday);
+                const sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                
+                const mStr = monday.toISOString().split('T')[0];
+                const sStr = sunday.toISOString().split('T')[0];
+                isActive = startDate === mStr && endDate === sStr;
+              } else if (preset.id === 'month') {
+                const today = new Date();
+                const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                
+                const fStr = firstDay.toISOString().split('T')[0];
+                const lStr = lastDay.toISOString().split('T')[0];
+                isActive = startDate === fStr && endDate === lStr;
+              } else if (preset.id === 'all') {
+                isActive = !startDate && !endDate;
+              }
+              
+              const applyPreset = () => {
+                if (preset.id === 'today') {
+                  setStartDate(todayStr);
+                  setEndDate(todayStr);
+                } else if (preset.id === 'yesterday') {
+                  const yesterday = new Date();
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  const yesterStr = yesterday.toISOString().split('T')[0];
+                  setStartDate(yesterStr);
+                  setEndDate(yesterStr);
+                } else if (preset.id === 'week') {
+                  const today = new Date();
+                  const currentDay = today.getDay();
+                  const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+                  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + distanceToMonday);
+                  const sunday = new Date(monday);
+                  sunday.setDate(monday.getDate() + 6);
+                  setStartDate(monday.toISOString().split('T')[0]);
+                  setEndDate(sunday.toISOString().split('T')[0]);
+                } else if (preset.id === 'month') {
+                  const today = new Date();
+                  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                  setStartDate(firstDay.toISOString().split('T')[0]);
+                  setEndDate(lastDay.toISOString().split('T')[0]);
+                } else {
+                  setStartDate('');
+                  setEndDate('');
+                }
+              };
+
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={applyPreset}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border ${isActive ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/10' : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-100'}`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -693,7 +888,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                                     setSubmitError(null);
                                     setSubmitSuccess(false);
                                     setFormData({
-                                      fecha: new Date().toISOString().split('T')[0],
+                                      fecha: formatToHTMLDateInput(String(item['FECHA'] || item[mappedKeys.dateKey] || '')),
                                       placa: plateVal,
                                       carretillas: ['0', '1', '2', '3'].includes(carriesVal.trim()) ? carriesVal.trim() : '0',
                                       conos: ['0', '1', '2', '3'].includes(conesVal.trim()) ? conesVal.trim() : '0',
@@ -880,7 +1075,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                             setSubmitError(null);
                             setSubmitSuccess(false);
                             setFormData({
-                              fecha: new Date().toISOString().split('T')[0],
+                              fecha: formatToHTMLDateInput(String(item['FECHA'] || item[mappedKeys.dateKey] || '')),
                               placa: placaVal,
                               carretillas: ['0', '1', '2', '3'].includes(carriesVal.trim()) ? carriesVal.trim() : '0',
                               conos: ['0', '1', '2', '3'].includes(conesVal.trim()) ? conesVal.trim() : '0',
