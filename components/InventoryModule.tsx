@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { InventoryRecord, Vehicle } from '../types';
 import { 
   Search, Filter, Package, AlertTriangle, AlertCircle, RefreshCw, 
   ChevronDown, ChevronUp, Download, Eye, LayoutGrid, List, Sparkles, Box, CheckCircle2,
-  Calendar, Image as ImageIcon, Plus, Trash2, Check, Upload
+  Calendar, Image as ImageIcon, Plus, Trash2, Check, Upload, Camera, CameraOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getDriveDirectLink, formatDate, formatDateToDDMMAA } from '../utils';
@@ -72,6 +72,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
   const [dynamicFilters, setDynamicFilters] = useState<{ [key: string]: string }>({});
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [selectedTipo, setSelectedTipo] = useState<string>('TODOS');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [selectedItem, setSelectedItem] = useState<InventoryRecord | null>(null);
   const [activePhoto, setActivePhoto] = useState<{ url: string; title: string } | null>(null);
@@ -87,6 +88,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
     carretillas: '0',
     conos: '0',
     correas: 'N/A',
+    tipo: 'SALIDA',
   });
   const [formPhotos, setFormPhotos] = useState<{
     carretillas: string | null;
@@ -110,16 +112,108 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
+  // Camera state
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraField, setCameraField] = useState<'carretillas' | 'conos' | 'correas' | null>(null);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Function to open the camera modal
+  const openCamera = async (field: 'carretillas' | 'conos' | 'correas') => {
+    setCameraField(field);
+    setIsCameraOpen(true);
+    setCameraError(null);
+    await startCameraStream('environment'); // Default to back camera
+  };
+
+  // Function to start the camera stream
+  const startCameraStream = async (mode: 'user' | 'environment') => {
+    // If there is an existing stream, stop it first
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: mode }
+      });
+      setCameraStream(stream);
+      setFacingMode(mode);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        // Make sure it plays immediately
+        videoRef.current.play().catch(e => console.log('Error starting playing video stream:', e));
+      }
+    } catch (err: any) {
+      console.error("Error accessing camera: ", err);
+      setCameraError(
+        "No se pudo acceder a la cámara. Asegúrate de dar los permisos de cámara necesarios o utiliza el botón para subir un archivo."
+      );
+    }
+  };
+
+  // Switch camera front/back
+  const toggleCameraFacingMode = async () => {
+    const nextMode = facingMode === 'environment' ? 'user' : 'environment';
+    await startCameraStream(nextMode);
+  };
+
+  // Close camera modal
+  const closeCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setIsCameraOpen(false);
+    setCameraField(null);
+    setCameraError(null);
+  };
+
+  // Capture the photo from the stream and save it
+  const capturePhoto = () => {
+    if (!videoRef.current || !cameraField) return;
+
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        
+        setFormPhotos(prev => ({ ...prev, [cameraField]: dataUrl }));
+        setPhotoNames(prev => ({ ...prev, [cameraField]: `camara_${cameraField}_${Date.now()}.jpg` }));
+        closeCamera();
+      }
+    } catch (err) {
+      console.error("Error capturing photo: ", err);
+      setCameraError("Error al capturar la foto. Inténtalo de nuevo.");
+    }
+  };
+
   // Combine remote and local items
   const allData = useMemo(() => {
     const merged = [...data];
     localEntries.forEach(localItem => {
       const localPlate = String(localItem['PLACA'] || '').toUpperCase().trim();
+      const localDate = String(localItem['FECHA'] || '').toUpperCase().trim();
+      const localTipo = String(localItem['TIPO'] || 'SALIDA').toUpperCase().trim();
       
       const idx = merged.findIndex(item => {
         const plateKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'PLACA');
+        const dateKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'FECHA');
+        const tipoKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'TIPO');
+
         const itemPlate = plateKey ? String(item[plateKey] || '').toUpperCase().trim() : '';
-        return itemPlate === localPlate && localPlate !== '';
+        const itemDate = dateKey ? String(item[dateKey] || '').toUpperCase().trim() : '';
+        const itemTipo = tipoKey ? String(item[tipoKey] || 'SALIDA').toUpperCase().trim() : 'SALIDA';
+
+        return itemPlate === localPlate && localPlate !== '' && itemDate === localDate && itemTipo === localTipo;
       });
       
       if (idx !== -1) {
@@ -156,6 +250,43 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
       );
     });
   }, [localEntries, data]);
+
+  // Reconciliation grouping map (pairs Salida and Retorno of the same plate and date)
+  const reconciliationMap = useMemo(() => {
+    const map: {
+      [key: string]: {
+        salida?: InventoryRecord;
+        retorno?: InventoryRecord;
+      }
+    } = {};
+
+    allData.forEach(item => {
+      const placaKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'PLACA');
+      const dateKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'FECHA');
+      const tipoKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'TIPO');
+
+      const placa = placaKey ? String(item[placaKey] || '').toUpperCase().trim() : '';
+      const rawDate = dateKey ? String(item[dateKey] || '') : '';
+      const parsedDate = parseToDateObj(rawDate);
+      const dateStr = parsedDate ? `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}-${String(parsedDate.getDate()).padStart(2, '0')}` : '';
+      const tipo = tipoKey ? String(item[tipoKey] || 'SALIDA').toUpperCase().trim() : 'SALIDA';
+
+      if (!placa || !dateStr) return;
+
+      const groupKey = `${placa}_${dateStr}`;
+      if (!map[groupKey]) {
+        map[groupKey] = {};
+      }
+
+      if (tipo === 'SALIDA') {
+        map[groupKey].salida = item;
+      } else if (tipo === 'RETORNO') {
+        map[groupKey].retorno = item;
+      }
+    });
+
+    return map;
+  }, [allData]);
 
   const handlePhotoChange = (key: 'carretillas' | 'conos' | 'correas', file: File) => {
     if (!file) return;
@@ -217,6 +348,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
         fotoCarretillas: uploadedCarries || '',
         fotoConos: uploadedCones || '',
         fotoCorreas: uploadedBelts || '',
+        tipo: formData.tipo || 'SALIDA',
       };
 
       const isSaved = await submitInventoryToSheet(payload);
@@ -229,6 +361,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
         'CARRETILLAS': formData.carretillas,
         'CONOS': formData.conos,
         'CORREAS': formData.correas,
+        'TIPO': formData.tipo || 'SALIDA',
         'FOTOS CARRETILLAS': uploadedCarries || formPhotos.carretillas || '',
         'FOTOS CONOS': uploadedCones || formPhotos.conos || '',
         'FOTOS CORREAS': uploadedBelts || formPhotos.correas || '',
@@ -244,6 +377,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
         carretillas: '0',
         conos: '0',
         correas: 'N/A',
+        tipo: 'SALIDA',
       });
       setFormPhotos({ carretillas: null, conos: null, correas: null });
       setPhotoNames({ carretillas: '', conos: '', correas: '' });
@@ -308,12 +442,17 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
     };
   }, [headers]);
 
-  // Keep only FECHA and PLACA for table layout
+  // Keep only FECHA, PLACA, and TIPO for table layout
   const tableHeaders = useMemo(() => {
-    return headers.filter(h => {
+    const list = headers.filter(h => {
       const up = h.toUpperCase().trim();
-      return up === 'FECHA' || up === 'PLACA';
+      return up === 'FECHA' || up === 'PLACA' || up === 'TIPO';
     });
+    if (!list.some(h => h.toUpperCase().trim() === 'TIPO')) {
+      list.push('TIPO');
+    }
+    list.push('CONCILIACIÓN');
+    return list;
   }, [headers]);
 
   // Handle Dynamic Filter Change
@@ -361,6 +500,45 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
         result = result.filter(item => String(item[header] || '').trim() === filterValue);
       }
     });
+
+    // TIPO and DESCUADRE filter
+    if (selectedTipo && selectedTipo !== 'TODOS') {
+      if (selectedTipo === 'DESCUADRE') {
+        result = result.filter(item => {
+          const plateKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'PLACA') || 'PLACA';
+          const dateKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'FECHA') || 'FECHA';
+          
+          const itemPlaca = String(item[plateKey] || '').toUpperCase().trim();
+          const itemRawDate = String(item[dateKey] || '');
+          const itemDateObj = parseToDateObj(itemRawDate);
+          const itemDateStr = itemDateObj ? `${itemDateObj.getFullYear()}-${String(itemDateObj.getMonth() + 1).padStart(2, '0')}-${String(itemDateObj.getDate()).padStart(2, '0')}` : '';
+
+          const key = `${itemPlaca}_${itemDateStr}`;
+          const pair = reconciliationMap[key];
+
+          if (pair && pair.salida && pair.retorno) {
+            const carriesKey = headers.find(h => h.toUpperCase().trim() === 'CARRETILLAS') || 'CARRETILLAS';
+            const conesKey = headers.find(h => h.toUpperCase().trim() === 'CONOS') || 'CONOS';
+            const beltsKey = headers.find(h => h.toUpperCase().trim() === 'CORREAS') || 'CORREAS';
+
+            const sCarries = String(pair.salida[carriesKey] || '').trim();
+            const rCarries = String(pair.retorno[carriesKey] || '').trim();
+            const sCones = String(pair.salida[conesKey] || '').trim();
+            const rCones = String(pair.retorno[conesKey] || '').trim();
+            const sBelts = String(pair.salida[beltsKey] || '').trim().toUpperCase();
+            const rBelts = String(pair.retorno[beltsKey] || '').trim().toUpperCase();
+
+            return sCarries !== rCarries || sCones !== rCones || sBelts !== rBelts;
+          }
+          return false;
+        });
+      } else {
+        result = result.filter(item => {
+          const itemTipo = String(item['TIPO'] || 'SALIDA').toUpperCase().trim();
+          return itemTipo === selectedTipo;
+        });
+      }
+    }
 
     // Sort
     if (sortConfig) {
@@ -620,6 +798,21 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                 Limpiar fecha
               </button>
             )}
+
+            {/* Tipo de Inventario filter */}
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-1.5 focus-within:border-indigo-500 transition-all sm:ml-2">
+              <span className="text-[8px] font-bold text-slate-400 uppercase">Tipo</span>
+              <select
+                value={selectedTipo}
+                onChange={e => setSelectedTipo(e.target.value)}
+                className="bg-transparent text-[10px] font-black text-slate-800 uppercase outline-none cursor-pointer pr-1"
+              >
+                <option value="TODOS">Todos</option>
+                <option value="SALIDA">☀️ Salida</option>
+                <option value="RETORNO">🌙 Retorno</option>
+                <option value="DESCUADRE">⚠️ Con Descuadre</option>
+              </select>
+            </div>
           </div>
 
           {/* Quick Presets */}
@@ -831,7 +1024,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                             );
                           }
 
-                          // Highlight non-zero counts
+                                                  // Highlight non-zero counts
                           if (header === 'CARRETILLAS' || header === 'CONOS' || header === 'CORREAS') {
                             const ctVal = parseInt(val.replace(/[^0-9]/g, '')) || 0;
                             return (
@@ -841,6 +1034,93 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                                 </span>
                               </td>
                             );
+                          }
+
+                          if (header === 'TIPO') {
+                            const cleanVal = val.toUpperCase().trim() || 'SALIDA';
+                            return (
+                              <td key={header} className="px-6 py-4 font-black">
+                                {cleanVal === 'RETORNO' ? (
+                                  <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200/60 px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider shadow-sm">
+                                    <span>🌙</span> {cleanVal}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200/60 px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider shadow-sm">
+                                    <span>☀️</span> {cleanVal}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          }
+
+                          if (header === 'CONCILIACIÓN') {
+                            const plateKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'PLACA') || 'PLACA';
+                            const dateKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'FECHA') || 'FECHA';
+                            const tipoKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'TIPO') || 'TIPO';
+
+                            const itemPlaca = String(item[plateKey] || '').toUpperCase().trim();
+                            const itemRawDate = String(item[dateKey] || '');
+                            const itemDateObj = parseToDateObj(itemRawDate);
+                            const itemDateStr = itemDateObj ? `${itemDateObj.getFullYear()}-${String(itemDateObj.getMonth() + 1).padStart(2, '0')}-${String(itemDateObj.getDate()).padStart(2, '0')}` : '';
+                            const itemTipo = String(item[tipoKey] || 'SALIDA').toUpperCase().trim();
+
+                            const key = `${itemPlaca}_${itemDateStr}`;
+                            const pair = reconciliationMap[key];
+
+                            if (pair && pair.salida && pair.retorno) {
+                              const carriesColName = headers.find(h => h.toUpperCase().trim() === 'CARRETILLAS') || 'CARRETILLAS';
+                              const conesColName = headers.find(h => h.toUpperCase().trim() === 'CONOS') || 'CONOS';
+                              const beltsColName = headers.find(h => h.toUpperCase().trim() === 'CORREAS') || 'CORREAS';
+
+                              const sCarries = String(pair.salida[carriesColName] || '').trim();
+                              const rCarries = String(pair.retorno[carriesColName] || '').trim();
+                              const sCones = String(pair.salida[conesColName] || '').trim();
+                              const rCones = String(pair.retorno[conesColName] || '').trim();
+                              const sBelts = String(pair.salida[beltsColName] || '').trim().toUpperCase();
+                              const rBelts = String(pair.retorno[beltsColName] || '').trim().toUpperCase();
+
+                              const carriesDiff = sCarries !== rCarries;
+                              const conesDiff = sCones !== rCones;
+                              const beltsDiff = sBelts !== rBelts;
+                              const isMismatched = carriesDiff || conesDiff || beltsDiff;
+
+                              if (isMismatched) {
+                                const diffText = [
+                                  carriesDiff ? `Carretas: S(${sCarries}) vs R(${rCarries})` : '',
+                                  conesDiff ? `Conos: S(${sCones}) vs R(${rCones})` : '',
+                                  beltsDiff ? `Correas: S(${sBelts}) vs R(${rBelts})` : '',
+                                ].filter(Boolean).join(', ');
+
+                                return (
+                                  <td key={header} className="px-6 py-4" title={diffText}>
+                                    <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-700 border border-rose-200/60 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider shadow-sm">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                                      <span>Descuadre</span>
+                                    </span>
+                                    <p className="text-[7.5px] text-rose-500 font-bold mt-0.5 whitespace-normal break-words max-w-[150px]">
+                                      {diffText}
+                                    </p>
+                                  </td>
+                                );
+                              } else {
+                                return (
+                                  <td key={header} className="px-6 py-4">
+                                    <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider shadow-sm">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                      <span>Conciliado</span>
+                                    </span>
+                                  </td>
+                                );
+                              }
+                            } else {
+                              return (
+                                <td key={header} className="px-6 py-4 text-slate-400 font-bold text-[9px]">
+                                  <span className="inline-flex items-center gap-1 bg-slate-50 text-slate-400 border border-slate-200/50 px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                                    <span>🔍</span> Solo {itemTipo}
+                                  </span>
+                                </td>
+                              );
+                            }
                           }
 
                           return (
@@ -893,6 +1173,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                                       carretillas: ['0', '1', '2', '3'].includes(carriesVal.trim()) ? carriesVal.trim() : '0',
                                       conos: ['0', '1', '2', '3'].includes(conesVal.trim()) ? conesVal.trim() : '0',
                                       correas: ['COMPLETAS', 'INCOMPLETAS', 'N/A'].includes(beltsVal.toUpperCase().trim()) ? beltsVal.toUpperCase().trim() : 'N/A',
+                                      tipo: String(item['TIPO'] || 'SALIDA').toUpperCase().trim(),
                                     });
                                     setFormPhotos({ carretillas: null, conos: null, correas: null });
                                     setPhotoNames({ carretillas: '', conos: '', correas: '' });
@@ -1051,6 +1332,98 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                           )}
                         </div>
                       </div>
+
+                      {/* TIPO & Reconciliation Banner for cards */}
+                      {(() => {
+                        const tipoVal = String(item['TIPO'] || 'SALIDA').toUpperCase().trim();
+                        
+                        const plateKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'PLACA') || 'PLACA';
+                        const dateKey = Object.keys(item).find(k => k.toUpperCase().trim() === 'FECHA') || 'FECHA';
+                        const itemPlaca = String(item[plateKey] || '').toUpperCase().trim();
+                        const itemRawDate = String(item[dateKey] || '');
+                        const itemDateObj = parseToDateObj(itemRawDate);
+                        const itemDateStr = itemDateObj ? `${itemDateObj.getFullYear()}-${String(itemDateObj.getMonth() + 1).padStart(2, '0')}-${String(itemDateObj.getDate()).padStart(2, '0')}` : '';
+
+                        const key = `${itemPlaca}_${itemDateStr}`;
+                        const pair = reconciliationMap[key];
+                        
+                        let reconciliationSection = null;
+
+                        if (pair && pair.salida && pair.retorno) {
+                          const carriesColName = headers.find(h => h.toUpperCase().trim() === 'CARRETILLAS') || 'CARRETILLAS';
+                          const conesColName = headers.find(h => h.toUpperCase().trim() === 'CONOS') || 'CONOS';
+                          const beltsColName = headers.find(h => h.toUpperCase().trim() === 'CORREAS') || 'CORREAS';
+
+                          const sCarries = String(pair.salida[carriesColName] || '').trim();
+                          const rCarries = String(pair.retorno[carriesColName] || '').trim();
+                          const sCones = String(pair.salida[conesColName] || '').trim();
+                          const rCones = String(pair.retorno[conesColName] || '').trim();
+                          const sBelts = String(pair.salida[beltsColName] || '').trim().toUpperCase();
+                          const rBelts = String(pair.retorno[beltsColName] || '').trim().toUpperCase();
+
+                          const carriesDiff = sCarries !== rCarries;
+                          const conesDiff = sCones !== rCones;
+                          const beltsDiff = sBelts !== rBelts;
+                          const isMismatched = carriesDiff || conesDiff || beltsDiff;
+
+                          if (isMismatched) {
+                            const diffText = [
+                              carriesDiff ? `Carretas: S(${sCarries}) vs R(${rCarries})` : '',
+                              conesDiff ? `Conos: S(${sCones}) vs R(${rCones})` : '',
+                              beltsDiff ? `Correas: S(${sBelts}) vs R(${rBelts})` : '',
+                            ].filter(Boolean).join(', ');
+
+                            reconciliationSection = (
+                              <div className="bg-rose-50 border border-rose-100 p-2.5 rounded-2xl flex flex-col gap-1 mt-2">
+                                <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-rose-700 tracking-wide">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                                  ⚠️ Descuadre de Inventario
+                                </span>
+                                <span className="text-[7.5px] font-bold text-rose-500 leading-tight">
+                                  {diffText}
+                                </span>
+                              </div>
+                            );
+                          } else {
+                            reconciliationSection = (
+                              <div className="bg-emerald-50 border border-emerald-100 p-2.5 rounded-2xl flex items-center justify-between mt-2">
+                                <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-emerald-700 tracking-wide">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                  ✅ Conciliado (100%)
+                                </span>
+                                <span className="text-[7px] font-bold text-emerald-400">Mismo reporte</span>
+                              </div>
+                            );
+                          }
+                        } else {
+                          reconciliationSection = (
+                            <div className="bg-slate-50 border border-slate-100 p-2.5 rounded-2xl flex items-center justify-between mt-2">
+                              <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase text-slate-500 tracking-wide">
+                                <span>🔍</span> Solo {tipoVal}
+                              </span>
+                              <span className="text-[7px] font-bold text-slate-400 font-sans">Pendiente {tipoVal === 'SALIDA' ? 'Retorno' : 'Salida'}</span>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-2 mt-3">
+                            <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl border border-slate-100">
+                              <span className="text-[8px] font-black text-slate-400 tracking-widest uppercase">Tipo</span>
+                              {tipoVal === 'RETORNO' ? (
+                                <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200/50 px-2 py-0.5 rounded-md text-[8.5px] font-black uppercase tracking-wider">
+                                  <span>🌙</span> {tipoVal}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 border border-amber-200/50 px-2 py-0.5 rounded-md text-[8.5px] font-black uppercase tracking-wider">
+                                  <span>☀️</span> {tipoVal}
+                                </span>
+                              )}
+                            </div>
+                            {reconciliationSection}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="pt-3 sm:pt-4 mt-4 sm:mt-5 border-t border-slate-100 flex gap-2">
@@ -1080,6 +1453,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                               carretillas: ['0', '1', '2', '3'].includes(carriesVal.trim()) ? carriesVal.trim() : '0',
                               conos: ['0', '1', '2', '3'].includes(conesVal.trim()) ? conesVal.trim() : '0',
                               correas: ['COMPLETAS', 'INCOMPLETAS', 'N/A'].includes(beltsVal.toUpperCase().trim()) ? beltsVal.toUpperCase().trim() : 'N/A',
+                              tipo: String(item['TIPO'] || 'SALIDA').toUpperCase().trim(),
                             });
                             setFormPhotos({ carretillas: null, conos: null, correas: null });
                             setPhotoNames({ carretillas: '', conos: '', correas: '' });
@@ -1298,7 +1672,7 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
                   {/* Fecha Picker */}
                   <div className="space-y-1 sm:space-y-2">
                     <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-wider block">Fecha de Registro</label>
@@ -1349,6 +1723,23 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                       </div>
                     )}
                   </div>
+
+                  {/* Tipo de Registro (SALIDA / RETORNO) */}
+                  <div className="space-y-1 sm:space-y-2 font-sans">
+                    <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-wider block">Tipo de Registro</label>
+                    <div className="relative">
+                      <select
+                        required
+                        value={formData.tipo}
+                        onChange={(e) => setFormData(prev => ({ ...prev, tipo: e.target.value }))}
+                        className="w-full px-4 py-2.5 sm:py-3.5 bg-slate-50 border border-slate-200 rounded-xl sm:rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-600 focus:bg-white transition-all appearance-none cursor-pointer"
+                      >
+                        <option value="SALIDA">☀️ SALIDA (Mañana)</option>
+                        <option value="RETORNO">🌙 RETORNO (Noche)</option>
+                      </select>
+                      <ChevronDown className="absolute right-4 top-3 sm:top-4 text-slate-400 pointer-events-none" size={14} />
+                    </div>
+                  </div>
                 </div>
 
                 {/* Specific form element fields: Carretillas, Conos, Correas */}
@@ -1383,15 +1774,16 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                         <span>Foto Soporte (Carretillas)</span>
                         {photoNames.carretillas && <span className="text-emerald-600 font-bold">Cargada</span>}
                       </div>
-                      <div className="flex items-center gap-3">
-                        <label className="flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-3 sm:px-4 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border-2 border-dashed border-slate-200 hover:border-slate-300 rounded-xl sm:rounded-2xl cursor-pointer transition-all">
-                          <Upload size={14} />
-                          <span className="text-[11px] sm:text-xs font-bold truncate max-w-[180px] sm:max-w-[200px]">
-                            {photoNames.carretillas || 'Subir foto o arrastrar archivo'}
+                      <div className="flex items-center gap-2">
+                        <label className="flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-3 px-2 sm:px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border-2 border-dashed border-slate-200 hover:border-slate-300 rounded-xl sm:rounded-2xl cursor-pointer transition-all">
+                          <Upload size={13} />
+                          <span className="text-[10px] sm:text-xs font-bold truncate max-w-[120px] sm:max-w-[150px]">
+                            {photoNames.carretillas || 'Subir foto'}
                           </span>
                           <input
                             type="file"
                             accept="image/*"
+                            capture="environment"
                             className="hidden"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
@@ -1399,8 +1791,16 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                             }}
                           />
                         </label>
+                        <button
+                          type="button"
+                          onClick={() => openCamera('carretillas')}
+                          className="flex items-center justify-center gap-1.5 py-2.5 sm:py-3 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 border border-indigo-100 hover:border-indigo-200 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs transition-all cursor-pointer"
+                        >
+                          <Camera size={13} />
+                          <span>Cámara</span>
+                        </button>
                         {formPhotos.carretillas && (
-                          <div className="relative w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0">
+                          <div className="relative w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0">
                             <img src={formPhotos.carretillas} className="w-full h-full object-cover" />
                             <button
                               type="button"
@@ -1448,15 +1848,16 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                         <span>Foto Soporte (Conos)</span>
                         {photoNames.conos && <span className="text-emerald-600 font-bold">Cargada</span>}
                       </div>
-                      <div className="flex items-center gap-3">
-                        <label className="flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-3 sm:px-4 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border-2 border-dashed border-slate-200 hover:border-slate-300 rounded-xl sm:rounded-2xl cursor-pointer transition-all">
-                          <Upload size={14} />
-                          <span className="text-[11px] sm:text-xs font-bold truncate max-w-[180px] sm:max-w-[200px]">
-                            {photoNames.conos || 'Subir foto o arrastrar archivo'}
+                      <div className="flex items-center gap-2">
+                        <label className="flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-3 px-2 sm:px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border-2 border-dashed border-slate-200 hover:border-slate-300 rounded-xl sm:rounded-2xl cursor-pointer transition-all">
+                          <Upload size={13} />
+                          <span className="text-[10px] sm:text-xs font-bold truncate max-w-[120px] sm:max-w-[150px]">
+                            {photoNames.conos || 'Subir foto'}
                           </span>
                           <input
                             type="file"
                             accept="image/*"
+                            capture="environment"
                             className="hidden"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
@@ -1464,8 +1865,16 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                             }}
                           />
                         </label>
+                        <button
+                          type="button"
+                          onClick={() => openCamera('conos')}
+                          className="flex items-center justify-center gap-1.5 py-2.5 sm:py-3 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 border border-indigo-100 hover:border-indigo-200 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs transition-all cursor-pointer"
+                        >
+                          <Camera size={13} />
+                          <span>Cámara</span>
+                        </button>
                         {formPhotos.conos && (
-                          <div className="relative w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0">
+                          <div className="relative w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0">
                             <img src={formPhotos.conos} className="w-full h-full object-cover" />
                             <button
                               type="button"
@@ -1513,15 +1922,16 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                         <span>Foto Soporte (Correas)</span>
                         {photoNames.correas && <span className="text-emerald-600 font-bold">Cargada</span>}
                       </div>
-                      <div className="flex items-center gap-3">
-                        <label className="flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-3 sm:px-4 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border-2 border-dashed border-slate-200 hover:border-slate-300 rounded-xl sm:rounded-2xl cursor-pointer transition-all">
-                          <Upload size={14} />
-                          <span className="text-[11px] sm:text-xs font-bold truncate max-w-[180px] sm:max-w-[200px]">
-                            {photoNames.correas || 'Subir foto o arrastrar archivo'}
+                      <div className="flex items-center gap-2">
+                        <label className="flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-3 px-2 sm:px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border-2 border-dashed border-slate-200 hover:border-slate-300 rounded-xl sm:rounded-2xl cursor-pointer transition-all">
+                          <Upload size={13} />
+                          <span className="text-[10px] sm:text-xs font-bold truncate max-w-[120px] sm:max-w-[150px]">
+                            {photoNames.correas || 'Subir foto'}
                           </span>
                           <input
                             type="file"
                             accept="image/*"
+                            capture="environment"
                             className="hidden"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
@@ -1529,8 +1939,16 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
                             }}
                           />
                         </label>
+                        <button
+                          type="button"
+                          onClick={() => openCamera('correas')}
+                          className="flex items-center justify-center gap-1.5 py-2.5 sm:py-3 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 border border-indigo-100 hover:border-indigo-200 rounded-xl sm:rounded-2xl font-black text-[10px] sm:text-xs transition-all cursor-pointer"
+                        >
+                          <Camera size={13} />
+                          <span>Cámara</span>
+                        </button>
                         {formPhotos.correas && (
-                          <div className="relative w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0">
+                          <div className="relative w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0">
                             <img src={formPhotos.correas} className="w-full h-full object-cover" />
                             <button
                               type="button"
@@ -1608,6 +2026,96 @@ const InventoryModule: React.FC<InventoryModuleProps> = ({ headers, data, onRefr
             >
               <Eye size={14} /> Abrir Foto Original en Google Drive
             </a>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Camera Capture Modal */}
+      {isCameraOpen && (
+        <div key="camera-modal" className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4 select-none">
+          <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col relative space-y-4 p-5">
+            {/* Header */}
+            <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+              <span className="inline-flex items-center gap-2 text-xs font-black uppercase text-indigo-400 tracking-wider">
+                <Camera size={14} />
+                <span>Foto de {cameraField === 'carretillas' ? 'Carretas' : cameraField === 'conos' ? 'Conos' : 'Correas'}</span>
+              </span>
+              <button
+                type="button"
+                onClick={closeCamera}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            {/* Video Container / Error screen */}
+            <div className="relative aspect-video rounded-2xl bg-slate-950 overflow-hidden border border-slate-800 flex items-center justify-center">
+              {cameraError ? (
+                <div className="p-6 text-center space-y-3 flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-full bg-rose-500/10 flex items-center justify-center text-rose-500">
+                    <CameraOff size={24} />
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 leading-relaxed max-w-[280px]">
+                    {cameraError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => startCameraStream(facingMode)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[9px] uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-md"
+                  >
+                    Reintentar Cámara
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`w-full h-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
+                  />
+                  
+                  {/* Subtle target alignment frame */}
+                  <div className="absolute inset-4 pointer-events-none border border-white/10 rounded-xl">
+                    <span className="absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 border-indigo-500"></span>
+                    <span className="absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 border-indigo-500"></span>
+                    <span className="absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 border-indigo-500"></span>
+                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 border-indigo-500"></span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Controls */}
+            {!cameraError && (
+              <div className="flex flex-col gap-3 font-sans">
+                <div className="flex justify-between items-center text-[9px] text-slate-400 px-1 font-bold">
+                  <span>Modo: <span className="text-slate-200 capitalize font-black">{facingMode === 'environment' ? 'Trasera 📸' : 'Frontal 👤'}</span></span>
+                  <button
+                    type="button"
+                    onClick={toggleCameraFacingMode}
+                    className="text-indigo-400 hover:text-indigo-300 font-black uppercase tracking-wider hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw size={11} /> Cambiar Cámara
+                  </button>
+                </div>
+
+                <div className="flex justify-center pt-1.5">
+                  <button
+                    type="button"
+                    onClick={capturePhoto}
+                    className="w-14 h-14 rounded-full bg-white hover:bg-slate-100 flex items-center justify-center border-4 border-indigo-500 hover:border-indigo-600 transition-all cursor-pointer shadow-lg active:scale-95 text-slate-900 duration-100"
+                    title="Capturar Foto"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-700 flex items-center justify-center text-white">
+                      <Check size={18} />
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

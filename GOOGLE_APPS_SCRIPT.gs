@@ -587,6 +587,16 @@ function doPost(e) {
         var ssI = SpreadsheetApp.openById(docId);
         var s = ssI.getSheetByName('INVENTARIO') || ssI.getSheets()[0];
         
+        // Ensure "TIPO" header exists in Row 1, Column 9 (Col I)
+        if (s.getLastColumn() < 9) {
+          s.getRange(1, 9).setValue("TIPO");
+        } else {
+          var val9 = s.getRange(1, 9).getValue().toString().toUpperCase().trim();
+          if (val9 !== "TIPO") {
+            s.getRange(1, 9).setValue("TIPO");
+          }
+        }
+        
         var imgCarries = sImg(d.fotoCarretillas, "INV_CARRETILLAS_" + d.placa);
         var imgCones = sImg(d.fotoConos, "INV_CONOS_" + d.placa);
         var imgBelts = sImg(d.fotoCorreas, "INV_CORREAS_" + d.placa);
@@ -595,12 +605,14 @@ function doPost(e) {
         var foundIdx = -1;
         var plateSearch = (d.placa || "").toString().toUpperCase().trim();
         var dateSearchNorm = normalizeDateToCompare(d.fecha);
+        var tipoSearch = (d.tipo || "SALIDA").toString().toUpperCase().trim();
         
         for (var i = 1; i < rows.length; i++) {
           var rowPlate = (rows[i][1] || "").toString().toUpperCase().trim(); // Columna PLACA (B)
           if (rowPlate === plateSearch) {
             var rowDateNorm = normalizeDateToCompare(rows[i][0]); // Columna FECHA (A)
-            if (rowDateNorm && dateSearchNorm && rowDateNorm === dateSearchNorm) {
+            var rowTipo = (rows[i][8] || "SALIDA").toString().toUpperCase().trim(); // Columna TIPO (I)
+            if (rowDateNorm && dateSearchNorm && rowDateNorm === dateSearchNorm && rowTipo === tipoSearch) {
               foundIdx = i + 1;
               break;
             }
@@ -612,11 +624,12 @@ function doPost(e) {
           s.getRange(foundIdx, 3).setValue(d.carretillas);
           s.getRange(foundIdx, 4).setValue(d.conos);
           s.getRange(foundIdx, 5).setValue(d.correas);
-          s.getRange(foundIdx, 6).setValue(imgCarries || "");
-          s.getRange(foundIdx, 7).setValue(imgCones || "");
-          s.getRange(foundIdx, 8).setValue(imgBelts || "");
+          if (imgCarries) s.getRange(foundIdx, 6).setValue(imgCarries);
+          if (imgCones) s.getRange(foundIdx, 7).setValue(imgCones);
+          if (imgBelts) s.getRange(foundIdx, 8).setValue(imgBelts);
+          s.getRange(foundIdx, 9).setValue(tipoSearch);
           if (lock.hasLock()) lock.releaseLock();
-          return output("success", "Inventario actualizado para la placa " + plateSearch);
+          return output("success", "Inventario actualizado para la placa " + plateSearch + " (" + tipoSearch + ")");
         } else {
           s.appendRow([
             d.fecha,
@@ -626,10 +639,11 @@ function doPost(e) {
             d.correas,
             imgCarries || "",
             imgCones || "",
-            imgBelts || ""
+            imgBelts || "",
+            tipoSearch
           ]);
           if (lock.hasLock()) lock.releaseLock();
-          return output("success", "Nuevo inventario registrado para la placa " + plateSearch);
+          return output("success", "Nuevo inventario registrado para la placa " + plateSearch + " (" + tipoSearch + ")");
         }
       }
     }
